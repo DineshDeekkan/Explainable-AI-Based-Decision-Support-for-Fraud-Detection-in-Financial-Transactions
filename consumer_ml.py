@@ -45,12 +45,17 @@ for message in consumer:
             "risk_score": txn["risk_score"]
         }])
 
-        prediction = model.predict(features)[0]
+        #prediction = model.predict(features)[0]
         probability = model.predict_proba(features)[0][1]
+        
+        if probability > 0.4:   # Adjust threshold as needed based on model performance
+            predicted_label = "FRAUD"
+        else:
+            predicted_label = "GENUINE"
 
-        predicted_label = "FRAUD" if prediction == 1 else "GENUINE"
+        #predicted_label = "FRAUD" if prediction == 1 else "GENUINE"
 
-        txn["fraud_probability"] = round(probability, 3)
+        txn["fraud_probability"] = float(round(probability, 3))
 
         # Evaluate live accuracy
         if predicted_label == txn["true_label"]:
