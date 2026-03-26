@@ -48,7 +48,7 @@ for message in consumer:
         #prediction = model.predict(features)[0]
         probability = model.predict_proba(features)[0][1]
         
-        if probability > 0.4:   # Adjust threshold as needed based on model performance
+        if probability > 0.6:   # Adjust threshold as needed based on model performance
             predicted_label = "FRAUD"
         else:
             predicted_label = "GENUINE"
@@ -62,6 +62,9 @@ for message in consumer:
             correct += 1
 
         accuracy = (correct / total) * 100
+
+        # Reset metrics every 100 transactions
+        
 
         txn["predicted_label"] = predicted_label
 
