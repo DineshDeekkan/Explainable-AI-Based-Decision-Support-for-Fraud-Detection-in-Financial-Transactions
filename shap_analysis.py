@@ -1,4 +1,4 @@
-from kafka import KafkaConsumer
+from kafka import KafkaConsumer, KafkaProducer
 import json
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -12,14 +12,19 @@ model = joblib.load("fraud_model.pkl")
 location_encoder = joblib.load("location_encoder.pkl")
 device_encoder = joblib.load("device_encoder.pkl")
 
-# Kafka consumer
+# Kafka consumer for blocked transactions
 consumer = KafkaConsumer(
     "transactions_blocked",
     bootstrap_servers="localhost:9092",
     value_deserializer=lambda m: json.loads(m.decode("utf-8")),
     auto_offset_reset="latest",
-    enable_auto_commit=True,
     group_id="shap-analysis-group"
+)
+
+# Kafka producer to send SHAP insights
+producer = KafkaProducer(
+    bootstrap_servers="localhost:9092",
+    value_serializer=lambda v: json.dumps(v).encode("utf-8")
 )
 
 print("Waiting for a fraud transaction...")
@@ -27,63 +32,52 @@ print("Waiting for a fraud transaction...")
 # Create SHAP explainer
 explainer = shap.TreeExplainer(model)
 
-# Get one blocked transaction
 for message in consumer:
     txn = message.value
     print("\nFraud transaction received:", txn)
-    
-    # Convert to dataframe
-    df = pd.DataFrame([txn])
 
-    # Encode categorical features
-    df["location"] = location_encoder.transform(df["location"])
-    df["device"] = device_encoder.transform(df["device"])
+    try:
+        # Convert to dataframe
+        df = pd.DataFrame([txn])
 
-    X = df[["amount", "location", "device", "risk_score"]]
+        # Encode categorical features
+        df["location"] = location_encoder.transform(df["location"])
+        df["device"] = device_encoder.transform(df["device"])
 
-    # SHAP explanation
-    shap_values = explainer.shap_values(X)
+        X = df[["amount", "location", "device", "risk_score"]]
 
-    print("Generating SHAP explanation...")
+        # SHAP explanation
+        shap_values = explainer.shap_values(X)
 
-    if isinstance(shap_values, list):
-        shap_val = shap_values[1][0]
-    else:
-        shap_val = shap_values[0][:,1]
+        print("Generating SHAP explanation...")
 
-    base = float(explainer.expected_value[1])
-
-    explanation = shap.Explanation(
-        values=shap_val,
-        base_values=base,
-        data=X.iloc[0],
-        feature_names=X.columns
-    )
-
-    shap.plots.waterfall(explanation, show=False)
-    plt.show(block=False)
-    plt.pause(2)
-    plt.close()
-
-    # Human readable explanation
-    values = [float(v) if not hasattr(v,"__len__") else float(v[0]) for v in shap_val]
-
-    feature_impacts = list(zip(X.columns, values))
-    feature_impacts.sort(key=lambda x: abs(x[1]), reverse=True)
-
-    print("\n🚨 FRAUD EXPLANATION")
-    print("----------------------")
-
-    reasons = []
-
-    for feature,val in feature_impacts[:3]:
-        if val > 0:
-            reason = f"{feature} increased fraud risk"
+        if isinstance(shap_values, list):
+            shap_val = shap_values[1][0]
         else:
-            reason = f"{feature} reduced fraud risk"
+            shap_val = shap_values[0][:, 1]
 
-        reasons.append(reason)
-        print("•", reason)
+        feature_impacts = list(zip(X.columns, shap_val))
+        feature_impacts.sort(key=lambda x: abs(x[1]), reverse=True)
 
-    summary = "Transaction flagged as FRAUD mainly because " + ", ".join(reasons[:2])
-    print("\nSummary:", summary)
+        reasons = []
+        for feature, val in feature_impacts[:3]:
+            if val > 0:
+                reasons.append(f"{feature} increased fraud risk")
+            else:
+                reasons.append(f"{feature} reduced fraud risk")
+
+        summary = "Fraud due to " + ", ".join(reasons[:2])
+
+        # 🚀 Send SHAP data
+        producer.send("shap_insights", {
+            "txn_id": txn["txn_id"],
+            "features": [f for f, _ in feature_impacts],
+            "impacts": [float(v) for _, v in feature_impacts],
+            "summary": summary
+        })
+
+        print("SHAP Sent:", summary)
+        print("-" * 60)
+
+    except Exception as e:
+        print("SHAP Error:", e)
