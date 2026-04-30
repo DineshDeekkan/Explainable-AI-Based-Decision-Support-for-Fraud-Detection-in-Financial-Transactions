@@ -2,6 +2,57 @@ from kafka import KafkaConsumer, KafkaProducer
 import json
 import joblib
 import pandas as pd
+from twilio.rest import Client
+import requests
+
+# Twilio whatsapp config
+ACCOUNT_SID = "AC7298185cfdc2fc6d870d336273c9819e"
+AUTH_TOKEN = "cdfa79f64c08c5b200383824107de46b"
+
+client = Client(ACCOUNT_SID, AUTH_TOKEN)
+
+FROM_NUMBER = "whatsapp:+14155238886"   # Twilio sandbox
+TO_NUMBER = "whatsapp:+917695967275"    # Your number
+
+def send_whatsapp_alert(message):
+    try:
+        client.messages.create(
+            body=message,
+            from_=FROM_NUMBER,
+            to=TO_NUMBER
+        )
+        print("📲 WhatsApp Alert Sent")
+    except Exception as e:
+        print("WhatsApp Error:", e)
+
+# Alert message generation
+def generate_alert_message(txn, reason):
+    return f"""
+*Transaction Alert*
+
+A transaction of ₹{txn['amount']} at {txn['location']} was blocked.
+
+*Reason:* {reason}
+
+If this was you, please try again or contact support.
+
+Ref: {txn['txn_id']}
+"""
+
+# Reason generation
+def get_reason(txn):
+    reasons = []
+
+    if txn["amount"] > 15000:
+        reasons.append("high transaction amount")
+
+    if txn["location"] == "Foreign":
+        reasons.append("unusual location")
+
+    if txn["risk_score"] > 1:
+        reasons.append("suspicious activity pattern")
+
+    return ", ".join(reasons) if reasons else "unusual transaction behavior"
 
 # Load model & encoders
 model = joblib.load("fraud_model.pkl")
@@ -113,6 +164,13 @@ for message in consumer:
         # Routing to kafka topics
         if predicted_label == "FRAUD":
             producer.send("transactions_blocked", txn)
+            # 🔥 Send alert only for high-risk fraud
+            if probability > 0.30:
+                reason = get_reason(txn)
+                message = generate_alert_message(txn, reason)
+
+                send_whatsapp_alert(message)
+                print("---Whatsapp alert sent---")
         else:
             producer.send("transactions_approved", txn)
 

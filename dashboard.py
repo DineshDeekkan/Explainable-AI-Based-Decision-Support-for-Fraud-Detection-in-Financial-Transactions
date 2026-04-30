@@ -8,13 +8,6 @@ import plotly.express as px
 # =============================
 st.set_page_config(page_title="Fraud Intelligence Dashboard", layout="wide")
 
-st.markdown("""
-<style>
-body { background-color: #0e1117; }
-h1, h2, h3 { color: #ffffff; }
-</style>
-""", unsafe_allow_html=True)
-
 st.title("🚨 XAI-Based Fraud Intelligence Dashboard")
 
 # =============================
@@ -32,16 +25,18 @@ def get_connection():
 conn = get_connection()
 
 # =============================
-# LOAD DATA
+# LOAD DATA (SEPARATE TABLES)
 # =============================
 @st.cache_data(ttl=5)
 def load_data():
-    df = pd.read_sql("SELECT * FROM transactions_approved UNION ALL SELECT * FROM transactions_blocked", conn)
+    transactions = pd.read_sql("SELECT * FROM transactions", conn)
+    approved = pd.read_sql("SELECT * FROM transactions_approved", conn)
+    blocked = pd.read_sql("SELECT * FROM transactions_blocked", conn)
     metrics = pd.read_sql("SELECT * FROM model_metrics ORDER BY created_at DESC LIMIT 1", conn)
     shap = pd.read_sql("SELECT * FROM shap_insights", conn)
-    return df, metrics, shap
+    return transactions, approved, blocked, metrics, shap
 
-df, metrics, shap_df = load_data()
+transactions_df, approved_df, blocked_df, metrics, shap_df = load_data()
 
 # =============================
 # SIDEBAR FILTERS
@@ -50,6 +45,17 @@ st.sidebar.header("🔍 Filters")
 
 label_filter = st.sidebar.selectbox("Transaction Type", ["ALL", "FRAUD", "GENUINE"])
 
+# =============================
+# DATA SELECTION LOGIC (IMPORTANT CHANGE)
+# =============================
+if label_filter == "ALL":
+    df = transactions_df
+elif label_filter == "FRAUD":
+    df = blocked_df
+else:
+    df = approved_df
+
+# Dynamic filters based on selected data
 location_filter = st.sidebar.multiselect("Location", df["location"].unique())
 device_filter = st.sidebar.multiselect("Device", df["device"].unique())
 
@@ -62,9 +68,6 @@ amount_range = st.sidebar.slider(
 
 # Apply filters
 filtered_df = df.copy()
-
-if label_filter != "ALL":
-    filtered_df = filtered_df[filtered_df["predicted_label"] == label_filter]
 
 if location_filter:
     filtered_df = filtered_df[filtered_df["location"].isin(location_filter)]
@@ -85,9 +88,6 @@ fraud = len(filtered_df[filtered_df["predicted_label"] == "FRAUD"])
 genuine = len(filtered_df[filtered_df["predicted_label"] == "GENUINE"])
 fraud_rate = (fraud / total * 100) if total else 0
 
-avg_amount = filtered_df["amount"].mean() if total else 0
-max_amount = filtered_df["amount"].max() if total else 0
-
 st.markdown("## 📊 Overview")
 
 c1, c2, c3, c4 = st.columns(4)
@@ -95,10 +95,6 @@ c1.metric("Total Transactions", total)
 c2.metric("Fraud", fraud)
 c3.metric("Genuine", genuine)
 c4.metric("Fraud %", round(fraud_rate, 2))
-
-c5, c6 = st.columns(2)
-c5.metric("Avg Amount", round(avg_amount, 2))
-c6.metric("Max Amount", round(max_amount, 2))
 
 st.markdown("---")
 
@@ -112,61 +108,94 @@ if not metrics.empty:
     m1.metric("Accuracy", metrics["accuracy"].values[0])
     m2.metric("Precision", metrics["precision"].values[0])
     m3.metric("Recall", metrics["recall"].values[0])
-else:
-    st.warning("No metrics available")
 
 st.markdown("---")
 
 # =============================
-# INTERACTIVE CHARTS
+# ADVANCED ANALYTICS
 # =============================
-st.markdown("## 📊 Analytics")
+st.markdown("## 📊 Advanced Analytics")
 
 col1, col2 = st.columns(2)
 
-# Fraud Distribution
+# Fraud vs Genuine Distribution
 with col1:
     fig = px.pie(filtered_df, names="predicted_label", title="Fraud vs Genuine")
     st.plotly_chart(fig, use_container_width=True)
 
-# Location Analysis
+# Fraud Probability Distribution (NEW)
 with col2:
-    loc_fig = px.bar(
-        filtered_df[filtered_df["predicted_label"] == "FRAUD"],
-        x="location",
-        title="Fraud by Location"
-    )
-    st.plotly_chart(loc_fig, use_container_width=True)
+    if "fraud_probability" in filtered_df.columns:
+        prob_fig = px.histogram(
+            filtered_df,
+            x="fraud_probability",
+            nbins=40,
+            title="Fraud Probability Distribution"
+        )
+        st.plotly_chart(prob_fig, use_container_width=True)
 
-# Time Trend
-st.markdown("### 📈 Transaction Trend")
+# =============================
+# AMOUNT ANALYSIS (NEW)
+# =============================
+st.markdown("### 💰 Transaction Amount Insights")
+
+col3, col4 = st.columns(2)
+
+# Boxplot for anomaly detection
+with col3:
+    box_fig = px.box(
+        filtered_df,
+        x="predicted_label",
+        y="amount",
+        title="Amount Distribution by Class"
+    )
+    st.plotly_chart(box_fig, use_container_width=True)
+
+# Fraud by device
+with col4:
+    device_fig = px.bar(
+        filtered_df[filtered_df["predicted_label"] == "FRAUD"],
+        x="device",
+        title="Fraud by Device"
+    )
+    st.plotly_chart(device_fig, use_container_width=True)
+
+# =============================
+# TIME SERIES
+# =============================
+st.markdown("### 📈 Live Transaction Trend")
 
 filtered_df["time"] = pd.to_datetime(filtered_df["timestamp"], unit="s")
 
 trend = filtered_df.groupby(pd.Grouper(key="time", freq="1min")).size().reset_index(name="count")
 
-fig = px.line(trend, x="time", y="count", title="Transactions Over Time")
-st.plotly_chart(fig, use_container_width=True)
+trend_fig = px.line(trend, x="time", y="count", title="Transactions Over Time")
+st.plotly_chart(trend_fig, use_container_width=True)
 
 st.markdown("---")
 
 # =============================
-# ALERTS
+# LIVE TABLE (IMPORTANT CHANGE)
 # =============================
-st.markdown("## 🚨 Live Alerts")
+st.markdown("## 🔴 Live Transactions Feed")
 
-fraud_df = filtered_df[filtered_df["predicted_label"] == "FRAUD"]
+# Show recent transactions based on selection
+st.dataframe(filtered_df.sort_values("timestamp", ascending=False).head(20))
 
-if not fraud_df.empty:
-    for _, row in fraud_df.tail(5).iterrows():
-        st.error(f"🚨 Fraud transaction : {row['txn_id']}  |  Amount : ₹{row['amount']}  |  Location : {row['location']}")
-else:
-    st.success("No fraud alerts")
+# =============================
+# ALERTS (ONLY FOR FRAUD VIEW)
+# =============================
+if label_filter == "FRAUD":
+    st.markdown("## 🚨 Fraud Alerts")
+
+    if not filtered_df.empty:
+        for _, row in filtered_df.head(5).iterrows():
+            st.error(f"🚨 Fraud TXN: {row['txn_id']} | ₹{row['amount']} | {row['location']}")
 
 st.markdown("---")
 
 # =============================
-# TRANSACTION + SHAP DRILLDOWN
+# TRANSACTION EXPLORER
 # =============================
 st.markdown("## 🔎 Transaction Explorer")
 
@@ -176,7 +205,6 @@ if not filtered_df.empty:
     txn_data = filtered_df[filtered_df["txn_id"] == selected_txn]
     st.dataframe(txn_data)
 
-    # SHAP
     st.markdown("### 🔍 SHAP Explanation")
 
     txn_shap = shap_df[shap_df["txn_id"] == selected_txn]
@@ -193,4 +221,4 @@ if not filtered_df.empty:
 
         st.info(txn_shap["summary"].iloc[0])
     else:
-        st.warning("No SHAP data for this transaction")
+        st.warning("No SHAP data available")
