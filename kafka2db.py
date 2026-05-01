@@ -28,7 +28,7 @@ consumer = KafkaConsumer(
     group_id="kafka-postgres-group"
 )
 
-print("🚀 Kafka → PostgreSQL consumer started...")
+print("🚀 Kafka → PostgreSQL Data Pipeline started...")
 
 # =============================
 # INSERT FUNCTIONS

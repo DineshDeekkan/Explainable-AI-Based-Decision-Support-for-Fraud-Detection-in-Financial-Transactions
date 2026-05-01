@@ -5,7 +5,7 @@ import pandas as pd
 import shap
 import joblib
 
-print("Starting SHAP explanation for a fraud transaction...")
+print("Starting SHAP explainer for a fraud transaction...")
 
 # Load trained model and encoders
 model = joblib.load("fraud_model.pkl")

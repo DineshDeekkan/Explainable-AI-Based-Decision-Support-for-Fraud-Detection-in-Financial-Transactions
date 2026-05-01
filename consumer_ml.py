@@ -6,7 +6,7 @@ from twilio.rest import Client
 import requests
 
 # Twilio whatsapp config
-ACCOUNT_SID = "AC7298185cfdc2fc6d870d336273c9819e"
+ACCOUNT_SID = "ACc0b7031f35ec6f1120d2713793519526"
 AUTH_TOKEN = "cdfa79f64c08c5b200383824107de46b"
 
 client = Client(ACCOUNT_SID, AUTH_TOKEN)
@@ -30,13 +30,16 @@ def generate_alert_message(txn, reason):
     return f"""
 *Transaction Alert*
 
-A transaction of ₹{txn['amount']} at {txn['location']} was blocked.
+A transaction of ₹{txn['amount']} from {txn['location']} was blocked.
 
 *Reason:* {reason}
 
 If this was you, please try again or contact support.
 
 Ref: {txn['txn_id']}
+
+Stay safe,
+Bank Security Team
 """
 
 # Reason generation
@@ -73,7 +76,7 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v).encode("utf-8")
 )
 
-print("ML-Based Fraud Detection Consumer Started...")
+print("ML-Based Fraud Detection Engine Started...")
 
 # Metrics
 total = 0
