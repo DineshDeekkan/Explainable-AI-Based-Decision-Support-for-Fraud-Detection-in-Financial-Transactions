@@ -6,13 +6,13 @@ from twilio.rest import Client
 import requests
 
 # Twilio whatsapp config
-ACCOUNT_SID = "ACc0b7031f35ec6f1120d2713793519526"
-AUTH_TOKEN = "cdfa79f64c08c5b200383824107de46b"
+ACCOUNT_SID = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+AUTH_TOKEN = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
-FROM_NUMBER = "whatsapp:+14155238886"   # Twilio sandbox
-TO_NUMBER = "whatsapp:+917695967275"    # Your number
+FROM_NUMBER = "whatsapp:+14xxxxxxxxx"   
+TO_NUMBER = "whatsapp:+91xxxxxxxxxx"    
 
 def send_whatsapp_alert(message):
     try:
